@@ -3,9 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { BarChart3, Users } from "lucide-react";
+import * as XLSX from "xlsx";
+import { saveAs } from "file-saver";
 
 interface Poll {
   id: string;
@@ -20,16 +22,17 @@ interface OptionResult {
 }
 
 interface VoteDetail {
-  voter_email: string;
+  voter_name: string;
   option_text: string;
   voted_at: string;
 }
 
 const PollResults = () => {
   const [polls, setPolls] = useState<Poll[]>([]);
-  const [selectedPoll, setSelectedPoll] = useState<string>("");
+  const [selectedPoll, setSelectedPoll] = useState("");
   const [results, setResults] = useState<OptionResult[]>([]);
   const [voteDetails, setVoteDetails] = useState<VoteDetail[]>([]);
+  const [authorizedUsers, setAuthorizedUsers] = useState<any[]>([]);
   const [totalVotes, setTotalVotes] = useState(0);
 
   useEffect(() => {
@@ -45,73 +48,110 @@ const PollResults = () => {
       .from("polls")
       .select("id, question, poll_date")
       .order("poll_date", { ascending: false });
+
     setPolls(data || []);
     if (data && data.length > 0) setSelectedPoll(data[0].id);
   };
 
   const loadResults = async (pollId: string) => {
-    // Load options
     const { data: options } = await supabase
       .from("poll_options")
       .select("id, option_text")
-      .eq("poll_id", pollId)
-      .order("sort_order");
+      .eq("poll_id", pollId);
 
-    // Load votes
     const { data: votes } = await supabase
       .from("votes")
       .select("option_id, user_id, voted_at")
       .eq("poll_id", pollId);
 
-    // Load profiles for voter emails
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, email, full_name");
+      .select("user_id, full_name, email");
 
-    const profileMap = new Map((profiles || []).map((p) => [p.user_id, p]));
+    const { data: authUsers } = await supabase
+      .from("authorized_emails")
+      .select("email, full_name");
+
+    setAuthorizedUsers(authUsers || []);
+
+    const profileMap = new Map(
+      (profiles || []).map((p) => [p.user_id, p])
+    );
 
     if (options && votes) {
       const countMap = new Map<string, number>();
-      votes.forEach((v) => countMap.set(v.option_id, (countMap.get(v.option_id) || 0) + 1));
+      votes.forEach((v) =>
+        countMap.set(v.option_id, (countMap.get(v.option_id) || 0) + 1)
+      );
 
-      const res: OptionResult[] = options.map((o) => ({
-        id: o.id,
-        option_text: o.option_text,
-        count: countMap.get(o.id) || 0,
-      }));
-      setResults(res);
+      setResults(
+        options.map((o) => ({
+          id: o.id,
+          option_text: o.option_text,
+          count: countMap.get(o.id) || 0,
+        }))
+      );
+
       setTotalVotes(votes.length);
 
-      // Build vote details
-      const optionMap = new Map(options.map((o) => [o.id, o.option_text]));
+      const optionMap = new Map(options.map(o => [o.id, o.option_text]));
+
       const details: VoteDetail[] = votes.map((v) => ({
-        voter_email: profileMap.get(v.user_id)?.email || "Unknown",
+        voter_name:
+          profileMap.get(v.user_id)?.full_name ||
+          profileMap.get(v.user_id)?.email ||
+          "Unknown",
         option_text: optionMap.get(v.option_id) || "Unknown",
         voted_at: new Date(v.voted_at).toLocaleString(),
       }));
+
       setVoteDetails(details);
     }
   };
 
-  const maxCount = Math.max(...results.map((r) => r.count), 1);
+  // 📥 Excel download helper
+  const downloadExcel = (data: any[], fileName: string) => {
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([buffer], { type: "application/octet-stream" });
+    saveAs(blob, fileName);
+  };
+
+  const downloadVoted = () => {
+    downloadExcel(voteDetails, "voted_users.xlsx");
+  };
+
+  const downloadNotVoted = () => {
+    const votedNames = new Set(voteDetails.map(v => v.voter_name));
+
+    const notVoted = authorizedUsers.filter(
+      (u) => !votedNames.has(u.full_name)
+    );
+
+    downloadExcel(notVoted, "not_voted_users.xlsx");
+  };
 
   const colors = [
-    "hsl(222, 60%, 22%)",
-    "hsl(40, 90%, 56%)",
-    "hsl(152, 60%, 40%)",
-    "hsl(0, 72%, 51%)",
-    "hsl(270, 50%, 50%)",
+    "hsl(222,60%,22%)",
+    "hsl(40,90%,56%)",
+    "hsl(152,60%,40%)",
+    "hsl(0,72%,51%)",
+    "hsl(270,50%,50%)",
   ];
 
   return (
     <div className="space-y-6">
       <Card className="shadow-card border-0">
         <CardHeader>
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <CardTitle className="text-lg flex items-center gap-2">
+          <div className="flex justify-between flex-wrap gap-4">
+            <CardTitle className="flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-accent" />
               Poll Results
             </CardTitle>
+
             <Select value={selectedPoll} onValueChange={setSelectedPoll}>
               <SelectTrigger className="w-64">
                 <SelectValue placeholder="Select poll" />
@@ -126,76 +166,69 @@ const PollResults = () => {
             </Select>
           </div>
         </CardHeader>
+
         <CardContent>
-          {results.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No results available.</p>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 mb-6 text-sm text-muted-foreground">
-                <Users className="w-4 h-4" />
-                <span>{totalVotes} total vote{totalVotes !== 1 ? "s" : ""}</span>
-              </div>
-              <div className="space-y-4">
-                {results.map((r, i) => {
-                  const pct = totalVotes > 0 ? Math.round((r.count / totalVotes) * 100) : 0;
-                  return (
-                    <motion.div
-                      key={r.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.1 }}
-                      className="space-y-1"
-                    >
-                      <div className="flex justify-between text-sm">
-                        <span className="font-medium">{r.option_text}</span>
-                        <span className="text-muted-foreground">
-                          {r.count} ({pct}%)
-                        </span>
-                      </div>
-                      <div className="h-3 rounded-full bg-muted overflow-hidden">
-                        <motion.div
-                          initial={{ width: 0 }}
-                          animate={{ width: `${pct}%` }}
-                          transition={{ delay: i * 0.1 + 0.3, duration: 0.6 }}
-                          className="h-full rounded-full"
-                          style={{ background: colors[i % colors.length] }}
-                        />
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+          <div className="flex items-center gap-2 mb-6 text-sm text-muted-foreground">
+            <Users className="w-4 h-4" />
+            {totalVotes} total votes
+          </div>
+
+          <div className="space-y-4">
+            {results.map((r, i) => {
+              const pct = totalVotes ? Math.round((r.count / totalVotes) * 100) : 0;
+              return (
+                <motion.div key={r.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium">{r.option_text}</span>
+                    <span>{r.count} ({pct}%)</span>
+                  </div>
+                  <div className="h-3 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${pct}%`, background: colors[i % colors.length] }}
+                    />
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
 
       {voteDetails.length > 0 && (
         <Card className="shadow-card border-0">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg">Vote Details</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Voter</TableHead>
-                    <TableHead>Choice</TableHead>
-                    <TableHead>Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {voteDetails.map((v, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-medium">{v.voter_email}</TableCell>
-                      <TableCell>{v.option_text}</TableCell>
-                      <TableCell className="text-muted-foreground text-sm">{v.voted_at}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+
+            <div className="flex gap-2">
+              <Button onClick={downloadVoted}>Download Voted</Button>
+              <Button variant="outline" onClick={downloadNotVoted}>
+                Download Not Voted
+              </Button>
             </div>
+          </CardHeader>
+
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Voter</TableHead>
+                  <TableHead>Choice</TableHead>
+                  <TableHead>Time</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {voteDetails.map((v, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="font-medium">{v.voter_name}</TableCell>
+                    <TableCell>{v.option_text}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {v.voted_at}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}
