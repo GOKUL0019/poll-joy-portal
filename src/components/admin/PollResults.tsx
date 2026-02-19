@@ -3,9 +3,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { BarChart3, Users } from "lucide-react";
+import { BarChart3, Users, UserCheck, UserX } from "lucide-react";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 
@@ -23,8 +24,16 @@ interface OptionResult {
 
 interface VoteDetail {
   voter_name: string;
+  voter_email: string;
   option_text: string;
   voted_at: string;
+  gender: string;
+  hostel: string | null;
+}
+
+interface NotVotedUser {
+  full_name: string | null;
+  email: string;
   gender: string;
   hostel: string | null;
 }
@@ -34,31 +43,18 @@ const PollResults = () => {
   const [selectedPoll, setSelectedPoll] = useState("");
   const [results, setResults] = useState<OptionResult[]>([]);
   const [voteDetails, setVoteDetails] = useState<VoteDetail[]>([]);
-  const [authorizedUsers, setAuthorizedUsers] = useState<any[]>([]);
+  const [notVotedUsers, setNotVotedUsers] = useState<NotVotedUser[]>([]);
   const [totalVotes, setTotalVotes] = useState(0);
-  const [visibleCounts, setVisibleCounts] = useState({ boys: 0, girls: 0 });
+  const [votedCounts, setVotedCounts] = useState({ boys: 0, girls: 0 });
+  const [notVotedCounts, setNotVotedCounts] = useState({ boys: 0, girls: 0 });
 
   useEffect(() => {
     loadPolls();
-    loadVisibleCounts();
   }, []);
 
   useEffect(() => {
     if (selectedPoll) loadResults(selectedPoll);
   }, [selectedPoll]);
-
-  const loadVisibleCounts = async () => {
-    const { data } = await supabase
-      .from("authorized_emails")
-      .select("gender")
-      .eq("is_visible", true);
-    if (data) {
-      setVisibleCounts({
-        boys: data.filter((u) => u.gender === "male").length,
-        girls: data.filter((u) => u.gender === "female").length,
-      });
-    }
-  };
 
   const loadPolls = async () => {
     const { data } = await supabase
@@ -86,9 +82,7 @@ const PollResults = () => {
 
     const { data: authUsers } = await supabase
       .from("authorized_emails")
-      .select("email, full_name, gender, hostel, is_visible");
-
-    setAuthorizedUsers(authUsers || []);
+      .select("email, full_name, gender, hostel");
 
     const profileMap = new Map(
       (profiles || []).map((p) => [p.user_id, p])
@@ -116,6 +110,7 @@ const PollResults = () => {
         const profile = profileMap.get(v.user_id);
         return {
           voter_name: profile?.full_name || profile?.email || "Unknown",
+          voter_email: profile?.email || "",
           option_text: optionMap.get(v.option_id) || "Unknown",
           voted_at: new Date(v.voted_at).toLocaleString(),
           gender: profile?.gender || "—",
@@ -124,6 +119,21 @@ const PollResults = () => {
       });
 
       setVoteDetails(details);
+
+      // Count voted boys/girls
+      setVotedCounts({
+        boys: details.filter((d) => d.gender === "male").length,
+        girls: details.filter((d) => d.gender === "female").length,
+      });
+
+      // Determine not-voted users
+      const votedEmails = new Set(details.map((d) => d.voter_email));
+      const notVoted = (authUsers || []).filter((u) => !votedEmails.has(u.email));
+      setNotVotedUsers(notVoted);
+      setNotVotedCounts({
+        boys: notVoted.filter((u) => u.gender === "male").length,
+        girls: notVoted.filter((u) => u.gender === "female").length,
+      });
     }
   };
 
@@ -137,13 +147,15 @@ const PollResults = () => {
   };
 
   const downloadVoted = () => {
-    downloadExcel(voteDetails, "voted_users.xlsx");
+    downloadExcel(voteDetails.map(({ voter_name, voter_email, gender, hostel, option_text, voted_at }) => ({
+      Name: voter_name, Email: voter_email, Gender: gender, Hostel: hostel, Choice: option_text, "Voted At": voted_at
+    })), "voted_users.xlsx");
   };
 
   const downloadNotVoted = () => {
-    const votedNames = new Set(voteDetails.map((v) => v.voter_name));
-    const notVoted = authorizedUsers.filter((u) => !votedNames.has(u.full_name));
-    downloadExcel(notVoted, "not_voted_users.xlsx");
+    downloadExcel(notVotedUsers.map((u) => ({
+      Name: u.full_name || "—", Email: u.email, Gender: u.gender, Hostel: u.gender === "female" ? u.hostel || "—" : "—"
+    })), "not_voted_users.xlsx");
   };
 
   const colors = [
@@ -156,18 +168,30 @@ const PollResults = () => {
 
   return (
     <div className="space-y-6">
-      {/* Gender summary for visible users */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Summary counts */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="shadow-card border-0">
           <CardContent className="pt-6 text-center">
-            <p className="text-3xl font-bold text-primary">{visibleCounts.boys}</p>
-            <p className="text-sm text-muted-foreground">Total Boys (Visible)</p>
+            <p className="text-3xl font-bold text-primary">{votedCounts.boys}</p>
+            <p className="text-sm text-muted-foreground">Boys Voted</p>
           </CardContent>
         </Card>
         <Card className="shadow-card border-0">
           <CardContent className="pt-6 text-center">
-            <p className="text-3xl font-bold text-accent">{visibleCounts.girls}</p>
-            <p className="text-sm text-muted-foreground">Total Girls (Visible)</p>
+            <p className="text-3xl font-bold text-accent">{votedCounts.girls}</p>
+            <p className="text-sm text-muted-foreground">Girls Voted</p>
+          </CardContent>
+        </Card>
+        <Card className="shadow-card border-0">
+          <CardContent className="pt-6 text-center">
+            <p className="text-3xl font-bold text-muted-foreground">{notVotedCounts.boys}</p>
+            <p className="text-sm text-muted-foreground">Boys Not Voted</p>
+          </CardContent>
+        </Card>
+        <Card className="shadow-card border-0">
+          <CardContent className="pt-6 text-center">
+            <p className="text-3xl font-bold text-muted-foreground">{notVotedCounts.girls}</p>
+            <p className="text-sm text-muted-foreground">Girls Not Voted</p>
           </CardContent>
         </Card>
       </div>
@@ -221,21 +245,23 @@ const PollResults = () => {
         </CardContent>
       </Card>
 
-      {/* Vote details table */}
-      {voteDetails.length > 0 && (
-        <Card className="shadow-card border-0">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg">Vote Details</CardTitle>
-            <div className="flex gap-2">
-              <Button onClick={downloadVoted}>Download Voted</Button>
-              <Button variant="outline" onClick={downloadNotVoted}>Download Not Voted</Button>
-            </div>
-          </CardHeader>
-          <CardContent>
+      {/* Voted users table */}
+      <Card className="shadow-card border-0">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <UserCheck className="w-5 h-5 text-green-500" />
+            Voted ({voteDetails.length})
+          </CardTitle>
+          <Button size="sm" onClick={downloadVoted}>Download</Button>
+        </CardHeader>
+        <CardContent>
+          {voteDetails.length === 0 ? (
+            <p className="text-muted-foreground text-center py-4">No votes yet.</p>
+          ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Voter</TableHead>
+                  <TableHead>Name</TableHead>
                   <TableHead>Gender</TableHead>
                   <TableHead>Hostel</TableHead>
                   <TableHead>Choice</TableHead>
@@ -248,15 +274,54 @@ const PollResults = () => {
                     <TableCell className="font-medium">{v.voter_name}</TableCell>
                     <TableCell className="capitalize">{v.gender}</TableCell>
                     <TableCell>{v.hostel}</TableCell>
-                    <TableCell>{v.option_text}</TableCell>
+                    <TableCell>
+                      <Badge variant="default">{v.option_text}</Badge>
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{v.voted_at}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Not voted users table */}
+      <Card className="shadow-card border-0">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <UserX className="w-5 h-5 text-destructive" />
+            Not Voted ({notVotedUsers.length})
+          </CardTitle>
+          <Button size="sm" variant="outline" onClick={downloadNotVoted}>Download</Button>
+        </CardHeader>
+        <CardContent>
+          {notVotedUsers.length === 0 ? (
+            <p className="text-muted-foreground text-center py-4">Everyone has voted!</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Gender</TableHead>
+                  <TableHead>Hostel</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {notVotedUsers.map((u, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="font-medium">{u.full_name || "—"}</TableCell>
+                    <TableCell>{u.email}</TableCell>
+                    <TableCell className="capitalize">{u.gender}</TableCell>
+                    <TableCell>{u.gender === "female" ? u.hostel || "—" : "—"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };
