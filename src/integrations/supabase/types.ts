@@ -19,24 +19,33 @@ export type Database = {
           created_at: string
           email: string
           full_name: string | null
+          gender: string
+          hostel: string | null
           id: string
           is_registered: boolean
+          is_visible: boolean
           phone: string
         }
         Insert: {
           created_at?: string
           email: string
           full_name?: string | null
+          gender?: string
+          hostel?: string | null
           id?: string
           is_registered?: boolean
+          is_visible?: boolean
           phone: string
         }
         Update: {
           created_at?: string
           email?: string
           full_name?: string | null
+          gender?: string
+          hostel?: string | null
           id?: string
           is_registered?: boolean
+          is_visible?: boolean
           phone?: string
         }
         Relationships: []
@@ -108,7 +117,10 @@ export type Database = {
           created_at: string
           email: string
           full_name: string | null
+          gender: string | null
+          hostel: string | null
           id: string
+          is_visible: boolean
           phone: string | null
           user_id: string
         }
@@ -116,7 +128,10 @@ export type Database = {
           created_at?: string
           email: string
           full_name?: string | null
+          gender?: string | null
+          hostel?: string | null
           id?: string
+          is_visible?: boolean
           phone?: string | null
           user_id: string
         }
@@ -124,7 +139,10 @@ export type Database = {
           created_at?: string
           email?: string
           full_name?: string | null
+          gender?: string | null
+          hostel?: string | null
           id?: string
+          is_visible?: boolean
           phone?: string | null
           user_id?: string
         }

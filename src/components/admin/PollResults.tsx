@@ -25,6 +25,8 @@ interface VoteDetail {
   voter_name: string;
   option_text: string;
   voted_at: string;
+  gender: string;
+  hostel: string | null;
 }
 
 const PollResults = () => {
@@ -34,21 +36,35 @@ const PollResults = () => {
   const [voteDetails, setVoteDetails] = useState<VoteDetail[]>([]);
   const [authorizedUsers, setAuthorizedUsers] = useState<any[]>([]);
   const [totalVotes, setTotalVotes] = useState(0);
+  const [visibleCounts, setVisibleCounts] = useState({ boys: 0, girls: 0 });
 
   useEffect(() => {
     loadPolls();
+    loadVisibleCounts();
   }, []);
 
   useEffect(() => {
     if (selectedPoll) loadResults(selectedPoll);
   }, [selectedPoll]);
 
+  const loadVisibleCounts = async () => {
+    const { data } = await supabase
+      .from("authorized_emails")
+      .select("gender")
+      .eq("is_visible", true);
+    if (data) {
+      setVisibleCounts({
+        boys: data.filter((u) => u.gender === "male").length,
+        girls: data.filter((u) => u.gender === "female").length,
+      });
+    }
+  };
+
   const loadPolls = async () => {
     const { data } = await supabase
       .from("polls")
       .select("id, question, poll_date")
       .order("poll_date", { ascending: false });
-
     setPolls(data || []);
     if (data && data.length > 0) setSelectedPoll(data[0].id);
   };
@@ -66,11 +82,11 @@ const PollResults = () => {
 
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, full_name, email");
+      .select("user_id, full_name, email, gender, hostel");
 
     const { data: authUsers } = await supabase
       .from("authorized_emails")
-      .select("email, full_name");
+      .select("email, full_name, gender, hostel, is_visible");
 
     setAuthorizedUsers(authUsers || []);
 
@@ -94,27 +110,27 @@ const PollResults = () => {
 
       setTotalVotes(votes.length);
 
-      const optionMap = new Map(options.map(o => [o.id, o.option_text]));
+      const optionMap = new Map(options.map((o) => [o.id, o.option_text]));
 
-      const details: VoteDetail[] = votes.map((v) => ({
-        voter_name:
-          profileMap.get(v.user_id)?.full_name ||
-          profileMap.get(v.user_id)?.email ||
-          "Unknown",
-        option_text: optionMap.get(v.option_id) || "Unknown",
-        voted_at: new Date(v.voted_at).toLocaleString(),
-      }));
+      const details: VoteDetail[] = votes.map((v) => {
+        const profile = profileMap.get(v.user_id);
+        return {
+          voter_name: profile?.full_name || profile?.email || "Unknown",
+          option_text: optionMap.get(v.option_id) || "Unknown",
+          voted_at: new Date(v.voted_at).toLocaleString(),
+          gender: profile?.gender || "—",
+          hostel: profile?.gender === "female" ? profile?.hostel || "—" : "—",
+        };
+      });
 
       setVoteDetails(details);
     }
   };
 
-  // 📥 Excel download helper
   const downloadExcel = (data: any[], fileName: string) => {
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
-
     const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
     const blob = new Blob([buffer], { type: "application/octet-stream" });
     saveAs(blob, fileName);
@@ -125,12 +141,8 @@ const PollResults = () => {
   };
 
   const downloadNotVoted = () => {
-    const votedNames = new Set(voteDetails.map(v => v.voter_name));
-
-    const notVoted = authorizedUsers.filter(
-      (u) => !votedNames.has(u.full_name)
-    );
-
+    const votedNames = new Set(voteDetails.map((v) => v.voter_name));
+    const notVoted = authorizedUsers.filter((u) => !votedNames.has(u.full_name));
     downloadExcel(notVoted, "not_voted_users.xlsx");
   };
 
@@ -144,6 +156,23 @@ const PollResults = () => {
 
   return (
     <div className="space-y-6">
+      {/* Gender summary for visible users */}
+      <div className="grid grid-cols-2 gap-4">
+        <Card className="shadow-card border-0">
+          <CardContent className="pt-6 text-center">
+            <p className="text-3xl font-bold text-primary">{visibleCounts.boys}</p>
+            <p className="text-sm text-muted-foreground">Total Boys (Visible)</p>
+          </CardContent>
+        </Card>
+        <Card className="shadow-card border-0">
+          <CardContent className="pt-6 text-center">
+            <p className="text-3xl font-bold text-accent">{visibleCounts.girls}</p>
+            <p className="text-sm text-muted-foreground">Total Girls (Visible)</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Poll results chart */}
       <Card className="shadow-card border-0">
         <CardHeader>
           <div className="flex justify-between flex-wrap gap-4">
@@ -151,7 +180,6 @@ const PollResults = () => {
               <BarChart3 className="w-5 h-5 text-accent" />
               Poll Results
             </CardTitle>
-
             <Select value={selectedPoll} onValueChange={setSelectedPoll}>
               <SelectTrigger className="w-64">
                 <SelectValue placeholder="Select poll" />
@@ -166,13 +194,11 @@ const PollResults = () => {
             </Select>
           </div>
         </CardHeader>
-
         <CardContent>
           <div className="flex items-center gap-2 mb-6 text-sm text-muted-foreground">
             <Users className="w-4 h-4" />
             {totalVotes} total votes
           </div>
-
           <div className="space-y-4">
             {results.map((r, i) => {
               const pct = totalVotes ? Math.round((r.count / totalVotes) * 100) : 0;
@@ -195,24 +221,23 @@ const PollResults = () => {
         </CardContent>
       </Card>
 
+      {/* Vote details table */}
       {voteDetails.length > 0 && (
         <Card className="shadow-card border-0">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg">Vote Details</CardTitle>
-
             <div className="flex gap-2">
               <Button onClick={downloadVoted}>Download Voted</Button>
-              <Button variant="outline" onClick={downloadNotVoted}>
-                Download Not Voted
-              </Button>
+              <Button variant="outline" onClick={downloadNotVoted}>Download Not Voted</Button>
             </div>
           </CardHeader>
-
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Voter</TableHead>
+                  <TableHead>Gender</TableHead>
+                  <TableHead>Hostel</TableHead>
                   <TableHead>Choice</TableHead>
                   <TableHead>Time</TableHead>
                 </TableRow>
@@ -221,10 +246,10 @@ const PollResults = () => {
                 {voteDetails.map((v, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-medium">{v.voter_name}</TableCell>
+                    <TableCell className="capitalize">{v.gender}</TableCell>
+                    <TableCell>{v.hostel}</TableCell>
                     <TableCell>{v.option_text}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {v.voted_at}
-                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{v.voted_at}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

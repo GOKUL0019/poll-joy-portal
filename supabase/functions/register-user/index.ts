@@ -55,19 +55,26 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Update profile with phone and name
+    // Update profile with all fields
     await supabaseAdmin
       .from("profiles")
-      .update({ phone: authorized.phone, full_name: authorized.full_name })
+      .update({
+        phone: authorized.phone,
+        full_name: authorized.full_name,
+        gender: authorized.gender,
+        hostel: authorized.hostel,
+        is_visible: authorized.is_visible,
+      })
       .eq("user_id", user.user.id);
 
     return new Response(
       JSON.stringify({ success: true }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (err) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: err.message }),
+      JSON.stringify({ error: message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
