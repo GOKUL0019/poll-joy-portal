@@ -20,7 +20,6 @@ interface AuthorizedEmail {
   is_registered: boolean;
   gender: string;
   hostel: string | null;
-  is_visible: boolean;
   created_at: string;
 }
 
@@ -31,7 +30,6 @@ const ManageUsers = () => {
   const [fullName, setFullName] = useState("");
   const [gender, setGender] = useState("male");
   const [hostel, setHostel] = useState("");
-  const [isVisible, setIsVisible] = useState("yes");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -57,7 +55,6 @@ const ManageUsers = () => {
       full_name: fullName.trim() || null,
       gender,
       hostel: gender === "female" ? hostel || null : null,
-      is_visible: isVisible === "yes",
     });
 
     if (error) {
@@ -73,7 +70,6 @@ const ManageUsers = () => {
       setFullName("");
       setGender("male");
       setHostel("");
-      setIsVisible("yes");
       loadUsers();
     }
     setLoading(false);
@@ -89,13 +85,8 @@ const ManageUsers = () => {
     }
   };
 
-  const visibleUsers = users.filter((u) => u.is_visible);
-  const boysCount = visibleUsers.filter((u) => u.gender === "male").length;
-  const girlsCount = visibleUsers.filter((u) => u.gender === "female").length;
-
   return (
     <div className="space-y-6">
-      {/* Add User Form */}
       <Card className="shadow-card border-0">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
@@ -168,20 +159,6 @@ const ManageUsers = () => {
               )}
             </AnimatePresence>
 
-            <div className="space-y-2">
-              <Label>Visible in Results?</Label>
-              <RadioGroup value={isVisible} onValueChange={setIsVisible} className="flex gap-4">
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="yes" id="vis-yes" />
-                  <Label htmlFor="vis-yes" className="cursor-pointer">Yes</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="no" id="vis-no" />
-                  <Label htmlFor="vis-no" className="cursor-pointer">No</Label>
-                </div>
-              </RadioGroup>
-            </div>
-
             <div className="flex items-end sm:col-span-2 lg:col-span-3">
               <Button type="submit" disabled={loading} className="w-full sm:w-auto gradient-accent text-accent-foreground hover:opacity-90">
                 <Plus className="w-4 h-4 mr-1" /> Add User
@@ -191,23 +168,6 @@ const ManageUsers = () => {
         </CardContent>
       </Card>
 
-      {/* Summary Counts */}
-      <div className="grid grid-cols-2 gap-4">
-        <Card className="shadow-card border-0">
-          <CardContent className="pt-6 text-center">
-            <p className="text-3xl font-bold text-primary">{boysCount}</p>
-            <p className="text-sm text-muted-foreground">Boys (Visible)</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-card border-0">
-          <CardContent className="pt-6 text-center">
-            <p className="text-3xl font-bold text-accent">{girlsCount}</p>
-            <p className="text-sm text-muted-foreground">Girls (Visible)</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Users Table */}
       <Card className="shadow-card border-0">
         <CardHeader>
           <CardTitle className="text-lg">
@@ -226,7 +186,6 @@ const ManageUsers = () => {
                     <TableHead>Email</TableHead>
                     <TableHead>Gender</TableHead>
                     <TableHead>Hostel</TableHead>
-                    <TableHead>Visible</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="w-12"></TableHead>
                   </TableRow>
@@ -244,11 +203,6 @@ const ManageUsers = () => {
                       <TableCell className="font-medium">{u.email}</TableCell>
                       <TableCell className="capitalize">{u.gender}</TableCell>
                       <TableCell>{u.gender === "female" ? u.hostel || "—" : "—"}</TableCell>
-                      <TableCell>
-                        <Badge variant={u.is_visible ? "default" : "secondary"}>
-                          {u.is_visible ? "Yes" : "No"}
-                        </Badge>
-                      </TableCell>
                       <TableCell>
                         <Badge variant={u.is_registered ? "default" : "secondary"}>
                           {u.is_registered ? "Registered" : "Pending"}
