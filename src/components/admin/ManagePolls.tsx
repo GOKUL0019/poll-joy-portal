@@ -1,14 +1,11 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { Plus, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { Plus, X, Vote } from "lucide-react";
-import { motion } from "framer-motion";
 
 interface Poll {
   id: string;
@@ -19,15 +16,14 @@ interface Poll {
   is_active: boolean;
 }
 
-const ManagePolls = () => {
-  const { user } = useAuth();
+export default function ManagePolls() {
   const [polls, setPolls] = useState<Poll[]>([]);
   const [question, setQuestion] = useState("");
-  const [pollDate, setPollDate] = useState(new Date().toISOString().split("T")[0]);
-  const [startTime, setStartTime] = useState("16:00");
-  const [endTime, setEndTime] = useState("19:00");
+  const [date, setDate] = useState("");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
   const [options, setOptions] = useState(["", ""]);
-  const [loading, setLoading] = useState(false);
+  const [editing, setEditing] = useState<Poll | null>(null);
 
   useEffect(() => {
     loadPolls();
@@ -37,163 +33,203 @@ const ManagePolls = () => {
     const { data } = await supabase
       .from("polls")
       .select("*")
-      .order("poll_date", { ascending: false })
-      .limit(20);
+      .order("created_at", { ascending: false });
+
     setPolls(data || []);
   };
 
+  const loadOptions = async (pollId: string) => {
+    const { data } = await supabase
+      .from("poll_options")
+      .select("*")
+      .eq("poll_id", pollId)
+      .order("sort_order");
+
+    setOptions(data?.map(o => o.option_text) || ["", ""]);
+  };
+
   const addOption = () => setOptions([...options, ""]);
+
   const removeOption = (i: number) => {
     if (options.length <= 2) return;
     setOptions(options.filter((_, idx) => idx !== i));
   };
-  const updateOption = (i: number, val: string) => {
+
+  const updateOption = (i: number, value: string) => {
     const updated = [...options];
-    updated[i] = val;
+    updated[i] = value;
     setOptions(updated);
   };
 
-  const createPoll = async (e: React.FormEvent) => {
+  const resetForm = () => {
+    setQuestion("");
+    setOptions(["", ""]);
+    setEditing(null);
+  };
+
+  const createPoll = async (e: any) => {
     e.preventDefault();
-    const validOptions = options.filter((o) => o.trim());
-    if (!question.trim() || validOptions.length < 2) {
-      toast({ title: "Error", description: "Question and at least 2 options required.", variant: "destructive" });
+
+    const valid = options.filter(o => o.trim());
+    if (!question || valid.length < 2) {
+      toast({ title: "Enter question & 2 options" });
       return;
     }
-    setLoading(true);
 
-    const { data: poll, error } = await supabase
+    const { data: poll } = await supabase
       .from("polls")
       .insert({
-        question: question.trim(),
-        poll_date: pollDate,
-        start_time: startTime + ":00",
-        end_time: endTime + ":00",
-        created_by: user?.id,
+        question,
+        poll_date: date,
+        start_time: start,
+        end_time: end,
       })
       .select()
       .single();
 
-    if (error || !poll) {
-      toast({ title: "Error", description: error?.message || "Failed to create poll", variant: "destructive" });
-      setLoading(false);
-      return;
-    }
-
-    const optionsToInsert = validOptions.map((text, i) => ({
+    const optionRows = valid.map((o, i) => ({
       poll_id: poll.id,
-      option_text: text.trim(),
+      option_text: o,
       sort_order: i,
     }));
 
-    const { error: optError } = await supabase.from("poll_options").insert(optionsToInsert);
-    if (optError) {
-      toast({ title: "Error", description: optError.message, variant: "destructive" });
-    } else {
-      toast({ title: "Poll created!", description: `Poll for ${pollDate} is ready.` });
-      setQuestion("");
-      setOptions(["", ""]);
-      loadPolls();
-    }
-    setLoading(false);
+    await supabase.from("poll_options").insert(optionRows);
+
+    toast({ title: "Poll created!" });
+    resetForm();
+    loadPolls();
   };
 
-  const togglePoll = async (id: string, current: boolean) => {
-    await supabase.from("polls").update({ is_active: !current }).eq("id", id);
+  const startEdit = async (poll: Poll) => {
+    setEditing(poll);
+    setQuestion(poll.question);
+    setDate(poll.poll_date);
+    setStart(poll.start_time);
+    setEnd(poll.end_time);
+    loadOptions(poll.id);
+  };
+
+  const updatePoll = async (e: any) => {
+    e.preventDefault();
+    if (!editing) return;
+
+    const valid = options.filter(o => o.trim());
+
+    await supabase
+      .from("polls")
+      .update({
+        question,
+        poll_date: date,
+        start_time: start,
+        end_time: end,
+      })
+      .eq("id", editing.id);
+
+    await supabase.from("poll_options")
+      .delete()
+      .eq("poll_id", editing.id);
+
+    const optionRows = valid.map((o, i) => ({
+      poll_id: editing.id,
+      option_text: o,
+      sort_order: i,
+    }));
+
+    await supabase.from("poll_options").insert(optionRows);
+
+    toast({ title: "Poll updated!" });
+    resetForm();
+    loadPolls();
+  };
+
+  const deletePoll = async (id: string) => {
+    if (!confirm("Delete poll?")) return;
+    await supabase.from("polls").delete().eq("id", id);
+    loadPolls();
+  };
+
+  const toggleActive = async (poll: Poll) => {
+    await supabase
+      .from("polls")
+      .update({ is_active: !poll.is_active })
+      .eq("id", poll.id);
+
     loadPolls();
   };
 
   return (
     <div className="space-y-6">
-      <Card className="shadow-card border-0">
+
+      {/* CREATE / EDIT */}
+      <Card>
         <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Vote className="w-5 h-5 text-accent" />
-            Create New Poll
-          </CardTitle>
+          <CardTitle>{editing ? "Edit Poll" : "Create Poll"}</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={createPoll} className="space-y-4">
-            <div className="space-y-1">
-              <Label>Question</Label>
-              <Input
-                placeholder="What's your question?"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                required
-              />
+          <form onSubmit={editing ? updatePoll : createPoll} className="space-y-4">
+
+            <Input
+              placeholder="Poll Question"
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+            />
+
+            <div className="grid grid-cols-3 gap-3">
+              <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
+              <Input type="time" value={start} onChange={e => setStart(e.target.value)} />
+              <Input type="time" value={end} onChange={e => setEnd(e.target.value)} />
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-1">
-                <Label>Date</Label>
-                <Input type="date" value={pollDate} onChange={(e) => setPollDate(e.target.value)} />
+
+            {options.map((opt, i) => (
+              <div key={i} className="flex gap-2">
+                <Input
+                  value={opt}
+                  placeholder={`Option ${i+1}`}
+                  onChange={(e) => updateOption(i, e.target.value)}
+                />
+                {options.length > 2 && (
+                  <Button type="button" onClick={() => removeOption(i)}>
+                    <X size={16}/>
+                  </Button>
+                )}
               </div>
-              <div className="space-y-1">
-                <Label>Start Time</Label>
-                <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <Label>End Time</Label>
-                <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Options</Label>
-              {options.map((opt, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    placeholder={`Option ${i + 1}`}
-                    value={opt}
-                    onChange={(e) => updateOption(i, e.target.value)}
-                  />
-                  {options.length > 2 && (
-                    <Button type="button" variant="ghost" size="icon" onClick={() => removeOption(i)}>
-                      <X className="w-4 h-4" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={addOption}>
-                <Plus className="w-4 h-4 mr-1" /> Add Option
-              </Button>
-            </div>
-            <Button type="submit" disabled={loading} className="gradient-primary text-primary-foreground hover:opacity-90">
-              {loading ? "Creating..." : "Create Poll"}
+            ))}
+
+            <Button type="button" variant="outline" onClick={addOption}>
+              <Plus size={16}/> Add Option
             </Button>
+
+            <Button type="submit">
+              {editing ? "Update Poll" : "Create Poll"}
+            </Button>
+
           </form>
         </CardContent>
       </Card>
 
-      <Card className="shadow-card border-0">
+      {/* POLL LIST */}
+      <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Recent Polls</CardTitle>
+          <CardTitle>Polls</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {polls.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No polls created yet.</p>
-          ) : (
-            polls.map((p, i) => (
-              <motion.div
-                key={p.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: i * 0.05 }}
-                className="flex items-center justify-between p-4 rounded-xl border bg-card"
-              >
-                <div>
-                  <p className="font-medium">{p.question}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {p.poll_date} · {p.start_time.slice(0, 5)} – {p.end_time.slice(0, 5)}
-                  </p>
-                </div>
-                <Switch checked={p.is_active} onCheckedChange={() => togglePoll(p.id, p.is_active)} />
-              </motion.div>
-            ))
-          )}
+          {polls.map(p => (
+            <div key={p.id} className="flex justify-between items-center border p-3 rounded-lg">
+              <div>
+                <p className="font-semibold">{p.question}</p>
+                <p className="text-sm text-gray-500">{p.poll_date}</p>
+              </div>
+
+              <div className="flex gap-2 items-center">
+                <Button size="sm" onClick={() => startEdit(p)}>Edit</Button>
+                <Button size="sm" variant="destructive" onClick={() => deletePoll(p.id)}>Delete</Button>
+                <Switch checked={p.is_active} onCheckedChange={() => toggleActive(p)} />
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
+
     </div>
   );
-};
-
-export default ManagePolls;
+}
