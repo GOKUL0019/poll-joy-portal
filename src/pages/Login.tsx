@@ -96,7 +96,7 @@ const Login = () => {
             <Vote className="w-8 h-8 text-primary" />
           </motion.div>
           <h1 className="text-3xl font-bold text-primary-foreground mb-2">
-            Daily Poll
+            Ramadan 2K26 
           </h1>
           <p className="text-primary-foreground/70">
             {isAdminLogin ? "Admin access" : "Sign in to cast your vote"}
