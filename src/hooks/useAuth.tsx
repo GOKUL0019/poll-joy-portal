@@ -25,25 +25,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+
+    // Set up auth listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (event === 'TOKEN_REFRESHED' && !session) {
-          // Token refresh failed, clear stale session
-          await supabase.auth.signOut();
-          return;
-        }
+        if (!mounted) return;
+
         setSession(session);
         setUser(session?.user ?? null);
 
         if (session?.user) {
           // Check admin role using setTimeout to avoid deadlock
           setTimeout(async () => {
+            if (!mounted) return;
             const { data } = await supabase.rpc("has_role", {
               _user_id: session.user.id,
               _role: "admin",
             });
-            setIsAdmin(!!data);
-            setLoading(false);
+            if (mounted) {
+              setIsAdmin(!!data);
+              setLoading(false);
+            }
           }, 0);
         } else {
           setIsAdmin(false);
@@ -52,29 +55,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     );
 
+    // Then check for existing session
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        // Stale/invalid session — clear it
-        supabase.auth.signOut();
+      if (!mounted) return;
+      if (error || !session) {
+        setSession(null);
+        setUser(null);
+        setIsAdmin(false);
         setLoading(false);
         return;
       }
       setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        supabase.rpc("has_role", {
-          _user_id: session.user.id,
-          _role: "admin",
-        }).then(({ data }) => {
+      setUser(session.user);
+      supabase.rpc("has_role", {
+        _user_id: session.user.id,
+        _role: "admin",
+      }).then(({ data }) => {
+        if (mounted) {
           setIsAdmin(!!data);
           setLoading(false);
-        });
-      } else {
-        setLoading(false);
-      }
+        }
+      });
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {
